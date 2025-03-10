@@ -1,4 +1,5 @@
-const { Telegraf, Scenes: { WizardScene }, session } = require('telegraf')
+const { Telegraf, Scenes, session } = require('telegraf')
+const { Stage, WizardScene } = Scenes
 const express = require('express')
 const { Pool } = require('pg')
 const axios = require('axios')
