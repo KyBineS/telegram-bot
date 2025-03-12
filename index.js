@@ -55,11 +55,6 @@ const broadcastScene = new WizardScene(
     async (ctx) => {
 
         await ctx.reply('Введите время мероприятия (например: 15:00 25.12.2024):');
-        const timeRegex = /^\d{2}:\d{2} \d{2}\.\d{2}\.\d{4}$/;
-        if (!timeRegex.test(ctx.message.text)) {
-            await ctx.reply('Некорректный формат времени. Используйте: HH:MM DD.MM.YYYY');
-            return ctx.wizard.back();
-        }
         ctx.wizard.state.time = ctx.message.text;
         return ctx.wizard.next();
 
