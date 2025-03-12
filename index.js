@@ -47,45 +47,30 @@ async function initDB() {
     }
 }
 
-// Сцена рассылки
 const broadcastScene = new WizardScene(
     'broadcast',
-    // Шаг 1: Запрос времени
     async (ctx) => {
-        // Для callback_query используем editMessageText
+        // Для запуска через кнопку используем ctx.reply вместо editMessageText
         if (ctx.updateType === 'callback_query') {
-            await ctx.editMessageText('Введите время мероприятия (например: 15:00 25.12.2024):');
+            await ctx.reply('Введите время мероприятия (например: 15:00 25.12.2024):');
         } else {
             await ctx.reply('Введите время мероприятия (например: 15:00 25.12.2024):');
         }
         return ctx.wizard.next();
     },
 
-    // Шаг 2: Обработка времени
     async (ctx) => {
-        // Получаем текст из сообщения ИЛИ из callback
-        const text = ctx.message?.text || ctx.callbackQuery?.data;
-
-        // Проверка формата времени
-        const timeRegex = /^\d{2}:\d{2} \d{2}\.\d{2}\.\d{4}$/;
-        if (!timeRegex.test(text)) {
-            await ctx.reply('❌ Неверный формат! Пример: 15:00 25.12.2024');
-            return ctx.wizard.back();
-        }
-
-        ctx.wizard.state.time = text;
+        ctx.wizard.state.time = ctx.message.text;
         await ctx.reply('Введите текст сообщения:');
         return ctx.wizard.next();
     },
 
-    // Шаг 3: Обработка текста
     async (ctx) => {
         ctx.wizard.state.message = ctx.message.text;
         await ctx.reply('Введите ссылку на Google Meet:');
         return ctx.wizard.next();
     },
 
-    // Шаг 4: Обработка ссылки и подтверждение
     async (ctx) => {
         ctx.wizard.state.link = ctx.message.text;
 
@@ -107,7 +92,6 @@ const broadcastScene = new WizardScene(
         return ctx.wizard.next();
     },
 
-    // Шаг 5: Обработка подтверждения
     async (ctx) => {
         if (ctx.callbackQuery?.data === 'confirm_send') {
             await pool.query(
@@ -121,6 +105,12 @@ const broadcastScene = new WizardScene(
         return ctx.scene.leave();
     }
 );
+
+// Обработчик кнопки "Создать рассылку"
+bot.action('start_broadcast', async (ctx) => {
+    await ctx.answerCbQuery(); // Закрываем "часики" на кнопке
+    await ctx.scene.enter('broadcast');
+});
 // Настройка бота
 const stage = new Scenes.Stage([broadcastScene])
 bot.use(session())
@@ -191,13 +181,6 @@ bot.action('list_users', async (ctx) => {
 bot.action('remove_user', async (ctx) => {
     await ctx.editMessageText('Введите ID пользователя для удаления:');
     ctx.session.waitingForUserId = true;
-});
-
-// Обработчик кнопки "Создать рассылку"
-bot.action('start_broadcast', async (ctx) => {
-    // Удаляем меню перед началом сцены
-    await ctx.deleteMessage();
-    await ctx.scene.enter('broadcast');
 });
 bot.command('unsubscribe', async (ctx) => {
     try {
