@@ -1,12 +1,12 @@
 const { Telegraf, Scenes, session } = require('telegraf')
-const { Stage, WizardScene } = Scenes
+const {Stage, WizardScene } = Scenes
 const express = require('express')
 const { Pool } = require('pg')
 const axios = require('axios')
 require('dotenv').config()
 const fs = require('fs');
 const path = require('path');
-
+const { Markup } = Telegraf;
 function logAction(action, userId, details = '') {
     const logMessage = `[${new Date().toISOString()}] ${action} | User: ${userId} | ${details}\n`;
     fs.appendFile(path.join(__dirname, 'actions.log'), logMessage, (err) => {
@@ -120,12 +120,69 @@ bot.start(async (ctx) => {
             'INSERT INTO users (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
             [ctx.from.id]
         );
+
         logAction('NEW_USER', ctx.from.id);
-        await ctx.reply('🎉 Добро пожаловать! Вы подписаны на рассылку.')
+
+        await ctx.reply('🎉 Добро пожаловать!', Markup.inlineKeyboard([
+            [
+                Markup.button.callback('✅ Подписаться', 'subscribe'),
+                Markup.button.callback('❌ Отписаться', 'unsubscribe_btn')
+            ]
+        ]));
     } catch (err) {
-        console.error('Ошибка регистрации:', err)
+        console.error('Ошибка регистрации:', err);
     }
-})
+});
+// Обработчики кнопок для пользователей
+bot.action('subscribe', async (ctx) => {
+    try {
+        await pool.query(
+            'INSERT INTO users (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
+            [ctx.from.id]
+        );
+        await ctx.editMessageText('✅ Вы подписаны на рассылку');
+    } catch (err) {
+        await ctx.editMessageText('⚠️ Ошибка подписки');
+    }
+});
+
+bot.action('unsubscribe_btn', async (ctx) => {
+    await pool.query('DELETE FROM users WHERE user_id = $1', [ctx.from.id]);
+    await ctx.editMessageText('❌ Вы отписались от рассылки');
+    logAction('UNSUBSCRIBE', ctx.from.id);
+});
+// Обновляем админское меню
+bot.command('admin', async (ctx) => {
+    if (ctx.from.id.toString() !== process.env.ADMIN_ID) return;
+
+    await ctx.reply('Панель управления:', Markup.inlineKeyboard([
+        [
+            Markup.button.callback('📤 Создать рассылку', 'start_broadcast'),
+            Markup.button.callback('👥 Список пользователей', 'list_users')
+        ],
+        [
+            Markup.button.callback('🗑 Удалить пользователя', 'remove_user'),
+            Markup.button.callback('📊 Статистика', 'stats_btn')
+        ]
+    ]));
+});
+// Обработчики админских кнопок
+bot.action('list_users', async (ctx) => {
+    const users = await pool.query('SELECT user_id FROM users');
+    const userList = users.rows.map(u => `👤 ID: ${u.user_id}`).join('\n');
+    await ctx.editMessageText(`Список подписчиков (${users.rowCount}):\n${userList}`);
+});
+
+bot.action('remove_user', async (ctx) => {
+    await ctx.editMessageText('Введите ID пользователя для удаления:');
+    ctx.session.waitingForUserId = true;
+});
+
+// Обработчик кнопки "Создать рассылку"
+bot.action('start_broadcast', async (ctx) => {
+    await ctx.scene.enter('broadcast'); // Запускаем сцену рассылки
+    await ctx.deleteMessage(); // Удаляем меню
+});
 bot.command('unsubscribe', async (ctx) => {
     try {
         await pool.query('DELETE FROM users WHERE user_id = $1', [ctx.from.id]);
@@ -158,22 +215,28 @@ bot.command('users', async (ctx) => {
         await ctx.reply('⚠️ Не удалось получить список');
     }
 });
-bot.command('remove', async (ctx) => {
-    if (ctx.from.id.toString() !== process.env.ADMIN_ID) return;
-
-    const userId = ctx.message.text.split(' ')[1];
-    if (!userId) {
-        return ctx.reply('Используйте: /remove <user_id>');
+bot.on('text', async (ctx) => {
+    if (ctx.session.waitingForUserId && ctx.from.id.toString() === process.env.ADMIN_ID) {
+        const userId = ctx.message.text;
+        try {
+            await pool.query('DELETE FROM users WHERE user_id = $1', [userId]);
+            await ctx.reply(`✅ Пользователь ${userId} удалён`);
+            logAction('USER_REMOVED', ctx.from.id, `Target: ${userId}`);
+        } catch (err) {
+            await ctx.reply('❌ Ошибка удаления');
+        }
+        ctx.session.waitingForUserId = false;
     }
+});
 
-    try {
-        await pool.query('DELETE FROM users WHERE user_id = $1', [userId]);
-        logAction('USER_REMOVED', ctx.from.id, `Target: ${userId}`);
-        await ctx.reply(`✅ Пользователь ${userId} удалён`);
-    } catch (err) {
-        console.error('Ошибка удаления:', err);
-        await ctx.reply('❌ Ошибка удаления');
-    }
+bot.action('stats_btn', async (ctx) => {
+    const users = await pool.query('SELECT COUNT(*) FROM users');
+    const messages = await pool.query('SELECT COUNT(*) FROM scheduled_messages');
+    await ctx.editMessageText(`
+    📊 Статистика:
+    👥 Пользователей: ${users.rows[0].count}
+    📨 Активных рассылок: ${messages.rows[0].count}
+  `);
 });
 
 // Автоматическая рассылка
