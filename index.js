@@ -1,9 +1,9 @@
-const { Telegraf, Scenes, session, Markup } = require('telegraf')
-const {Stage, WizardScene } = Scenes
-const express = require('express')
-const { Pool } = require('pg')
-const axios = require('axios')
-require('dotenv').config()
+const { Telegraf, Scenes, session, Markup } = require('telegraf');
+const { Stage, WizardScene } = Scenes;
+const express = require('express');
+const { Pool } = require('pg');
+const axios = require('axios');
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 function logAction(action, userId, details = '') {
@@ -14,8 +14,8 @@ function logAction(action, userId, details = '') {
     console.log(logMessage);
 }
 // Инициализация
-const app = express()
-const bot = new Telegraf(process.env.BOT_TOKEN)
+const app = express();
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // Подключение к PostgreSQL
 const pool = new Pool({
@@ -106,15 +106,10 @@ const broadcastScene = new WizardScene(
     }
 );
 
-// Обработчик кнопки "Создать рассылку"
-bot.action('start_broadcast', async (ctx) => {
-    await ctx.answerCbQuery(); // Закрываем "часики" на кнопке
-    await ctx.scene.enter('broadcast');
-});
 // Настройка бота
-const stage = new Scenes.Stage([broadcastScene])
+const stage = new Stage([broadcastScene]);
 bot.use(session())
-bot.use(stage.middleware())
+bot.use(stage.middleware());
 
 bot.start(async (ctx) => {
     try {
@@ -147,7 +142,10 @@ bot.action('subscribe', async (ctx) => {
         await ctx.editMessageText('⚠️ Ошибка подписки');
     }
 });
-
+bot.action('start_broadcast', async (ctx) => {
+    await ctx.answerCbQuery(); // Закрываем "часики" на кнопке
+    await ctx.scene.enter('broadcast');
+});
 bot.action('unsubscribe_btn', async (ctx) => {
     await pool.query('DELETE FROM users WHERE user_id = $1', [ctx.from.id]);
     await ctx.editMessageText('❌ Вы отписались от рассылки');
