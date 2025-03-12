@@ -3,17 +3,21 @@ const { Stage, WizardScene } = Scenes;
 const express = require('express');
 const { Pool } = require('pg');
 const axios = require('axios');
+const moment = require('moment-timezone');
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+
+moment.tz.setDefault('Europe/Moscow'); // Устанавливаем московское время
+
+// Функция логирования действий
 function logAction(action, userId, details = '') {
     const logMessage = `[${new Date().toISOString()}] ${action} | User: ${userId} | ${details}\n`;
-    fs.appendFile(path.join(__dirname, 'actions.log'), logMessage, (err) => {
-        if (err) console.error('Ошибка записи в лог:', err);
-    });
+    fs.appendFileSync(path.join(__dirname, 'actions.log'), logMessage);
     console.log(logMessage);
 }
-// Инициализация
+
+// Инициализация приложения
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -21,41 +25,38 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
-})
+});
 
-// Создание таблиц
+// Инициализация базы данных
 async function initDB() {
     try {
         await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT UNIQUE,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-      
-      CREATE TABLE IF NOT EXISTS scheduled_messages (
-        id SERIAL PRIMARY KEY,
-        message_text TEXT,
-        link TEXT,
-        event_time TEXT,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `)
-        console.log('✅ База данных готова')
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            
+            CREATE TABLE IF NOT EXISTS scheduled_messages (
+                id SERIAL PRIMARY KEY,
+                message_text TEXT,
+                link TEXT,
+                event_time TEXT,
+                notification_time TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        `);
+        console.log('✅ База данных готова');
     } catch (err) {
-        console.error('❌ Ошибка базы данных:', err)
+        console.error('❌ Ошибка базы данных:', err);
     }
 }
 
+// Сцена создания рассылки
 const broadcastScene = new WizardScene(
     'broadcast',
     async (ctx) => {
-        // Для запуска через кнопку используем ctx.reply вместо editMessageText
-        if (ctx.updateType === 'callback_query') {
-            await ctx.reply('Введите время мероприятия (например: 15:00 25.12.2024):');
-        } else {
-            await ctx.reply('Введите время мероприятия (например: 15:00 25.12.2024):');
-        }
+        await ctx.reply('Введите время мероприятия (например: 15:00 25.12.2024):');
         return ctx.wizard.next();
     },
 
@@ -75,11 +76,11 @@ const broadcastScene = new WizardScene(
         ctx.wizard.state.link = ctx.message.text;
 
         await ctx.replyWithHTML(`
-      <b>Подтвердите рассылку:</b>\n
-      🕒 Время: <code>${ctx.wizard.state.time}</code>\n
-      📢 Текст: ${ctx.wizard.state.message}\n
-      🔗 Ссылка: ${ctx.wizard.state.link}
-    `, {
+            <b>Подтвердите рассылку:</b>\n
+            🕒 Время: <code>${ctx.wizard.state.time}</code>\n
+            📢 Текст: ${ctx.wizard.state.message}\n
+            🔗 Ссылка: ${ctx.wizard.state.link}
+        `, {
             reply_markup: {
                 inline_keyboard: [
                     [
@@ -94,11 +95,40 @@ const broadcastScene = new WizardScene(
 
     async (ctx) => {
         if (ctx.callbackQuery?.data === 'confirm_send') {
-            await pool.query(
-                'INSERT INTO scheduled_messages (message_text, link, event_time) VALUES ($1, $2, $3)',
-                [ctx.wizard.state.message, ctx.wizard.state.link, ctx.wizard.state.time]
-            );
-            await ctx.editMessageText('✅ Рассылка запланирована!');
+            try {
+                // Парсим время события
+                const eventTime = moment.tz(
+                    ctx.wizard.state.time,
+                    'HH:mm DD.MM.YYYY',
+                    'Europe/Moscow'
+                );
+
+                if (!eventTime.isValid()) {
+                    await ctx.editMessageText('❌ Неверный формат времени!');
+                    return ctx.scene.leave();
+                }
+
+                // Вычисляем время уведомления (за 30 минут)
+                const notificationTime = eventTime.clone().subtract(30, 'minutes');
+
+                // Сохраняем в базу данных
+                await pool.query(
+                    `INSERT INTO scheduled_messages 
+                    (message_text, link, event_time, notification_time) 
+                    VALUES ($1, $2, $3, $4)`,
+                    [
+                        ctx.wizard.state.message,
+                        ctx.wizard.state.link,
+                        eventTime.format(),
+                        notificationTime.format()
+                    ]
+                );
+
+                await ctx.editMessageText('✅ Рассылка запланирована!');
+            } catch (err) {
+                console.error('Ошибка сохранения:', err);
+                await ctx.editMessageText('❌ Ошибка при сохранении');
+            }
         } else {
             await ctx.editMessageText('❌ Рассылка отменена');
         }
@@ -106,18 +136,18 @@ const broadcastScene = new WizardScene(
     }
 );
 
-// Настройка бота
+// Настройка сцен
 const stage = new Stage([broadcastScene]);
-bot.use(session())
+bot.use(session());
 bot.use(stage.middleware());
 
+// Команда /start
 bot.start(async (ctx) => {
     try {
         await pool.query(
             'INSERT INTO users (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
             [ctx.from.id]
         );
-
         logAction('NEW_USER', ctx.from.id);
 
         await ctx.reply('🎉 Добро пожаловать!', Markup.inlineKeyboard([
@@ -130,7 +160,8 @@ bot.start(async (ctx) => {
         console.error('Ошибка регистрации:', err);
     }
 });
-// Обработчики кнопок для пользователей
+
+// Обработчики кнопок
 bot.action('subscribe', async (ctx) => {
     try {
         await pool.query(
@@ -142,16 +173,14 @@ bot.action('subscribe', async (ctx) => {
         await ctx.editMessageText('⚠️ Ошибка подписки');
     }
 });
-bot.action('start_broadcast', async (ctx) => {
-    await ctx.answerCbQuery(); // Закрываем "часики" на кнопке
-    await ctx.scene.enter('broadcast');
-});
+
 bot.action('unsubscribe_btn', async (ctx) => {
     await pool.query('DELETE FROM users WHERE user_id = $1', [ctx.from.id]);
     await ctx.editMessageText('❌ Вы отписались от рассылки');
     logAction('UNSUBSCRIBE', ctx.from.id);
 });
-// Обновляем админское меню
+
+// Админская панель
 bot.command('admin', async (ctx) => {
     if (ctx.from.id.toString() !== process.env.ADMIN_ID) return;
 
@@ -169,7 +198,13 @@ bot.command('admin', async (ctx) => {
         ])
     );
 });
-// Обработчики админских кнопок
+
+// Обработчики админских команд
+bot.action('start_broadcast', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.scene.enter('broadcast');
+});
+
 bot.action('list_users', async (ctx) => {
     const users = await pool.query('SELECT user_id FROM users');
     const userList = users.rows.map(u => `👤 ID: ${u.user_id}`).join('\n');
@@ -180,38 +215,18 @@ bot.action('remove_user', async (ctx) => {
     await ctx.editMessageText('Введите ID пользователя для удаления:');
     ctx.session.waitingForUserId = true;
 });
-bot.command('unsubscribe', async (ctx) => {
-    try {
-        await pool.query('DELETE FROM users WHERE user_id = $1', [ctx.from.id]);
 
-        // Логирование отписки
-        logAction('UNSUBSCRIBE', ctx.from.id); // <-- Вставить здесь
-
-        await ctx.reply('❌ Вы отписались от рассылки');
-    } catch (err) {
-        console.error('Ошибка отписки:', err);
-        await ctx.reply('⚠️ Ошибка! Попробуйте позже');
-    }
+bot.action('stats_btn', async (ctx) => {
+    const users = await pool.query('SELECT COUNT(*) FROM users');
+    const messages = await pool.query('SELECT COUNT(*) FROM scheduled_messages');
+    await ctx.editMessageText(`
+        📊 Статистика:
+        👥 Пользователей: ${users.rows[0].count}
+        📨 Активных рассылок: ${messages.rows[0].count}
+    `);
 });
-bot.command('send', async (ctx) => {
-    if (ctx.from.id.toString() === process.env.ADMIN_ID) {
-        await ctx.scene.enter('broadcast')
-    } else {
-        await ctx.reply('⛔ Доступ запрещен!')
-    }
-})
-bot.command('users', async (ctx) => {
-    if (ctx.from.id.toString() !== process.env.ADMIN_ID) return;
 
-    try {
-        const users = await pool.query('SELECT user_id FROM users');
-        const userList = users.rows.map(u => `👤 ID: ${u.user_id}`).join('\n');
-        await ctx.reply(`Список подписчиков (${users.rowCount}):\n${userList}`);
-    } catch (err) {
-        console.error('Ошибка:', err);
-        await ctx.reply('⚠️ Не удалось получить список');
-    }
-});
+// Обработка текстовых команд
 bot.on('text', async (ctx) => {
     if (ctx.session.waitingForUserId && ctx.from.id.toString() === process.env.ADMIN_ID) {
         const userId = ctx.message.text;
@@ -226,31 +241,27 @@ bot.on('text', async (ctx) => {
     }
 });
 
-bot.action('stats_btn', async (ctx) => {
-    const users = await pool.query('SELECT COUNT(*) FROM users');
-    const messages = await pool.query('SELECT COUNT(*) FROM scheduled_messages');
-    await ctx.editMessageText(`
-    📊 Статистика:
-    👥 Пользователей: ${users.rows[0].count}
-    📨 Активных рассылок: ${messages.rows[0].count}
-  `);
-});
-
 // Автоматическая рассылка
 async function sendMessages() {
     try {
-        const messages = await pool.query('SELECT * FROM scheduled_messages');
+        const now = moment().tz('Europe/Moscow');
+        const messages = await pool.query(
+            'SELECT * FROM scheduled_messages WHERE notification_time <= $1',
+            [now.format()]
+        );
 
         for (const msg of messages.rows) {
             const users = await pool.query('SELECT user_id FROM users');
 
             for (const user of users.rows) {
                 try {
-                    await bot.telegram.sendMessage(user.user_id, `📅 ${msg.event_time}\n${msg.message_text}\n🔗 ${msg.link}`);
+                    await bot.telegram.sendMessage(
+                        user.user_id,
+                        `⏰ Напоминание! Через 30 минут:\n${msg.message_text}\n🔗 ${msg.link}`
+                    );
                 } catch (err) {
-                    if (err.code === 403) { // Пользователь заблокировал бота
+                    if (err.code === 403) {
                         await pool.query('DELETE FROM users WHERE user_id = $1', [user.user_id]);
-                        console.log(`Удалён неактивный: ${user.user_id}`);
                     }
                 }
             }
@@ -262,23 +273,22 @@ async function sendMessages() {
     }
 }
 
-// Запуск
-;(async () => {
-    await initDB()
+// Запуск приложения
+(async () => {
+    await initDB();
 
-    app.use(bot.webhookCallback('/'))
-    bot.telegram.setWebhook(`${process.env.RENDER_URL}/`)
+    app.use(bot.webhookCallback('/'));
+    bot.telegram.setWebhook(`${process.env.RENDER_URL}/`);
 
-    const PORT = process.env.PORT || 3000
+    const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
-        console.log(`🚀 Бот запущен на порту ${PORT}`)
-        setInterval(sendMessages, 60000)
+        console.log(`🚀 Бот запущен на порту ${PORT}`);
+        setInterval(sendMessages, 60000); // Проверка каждую минуту
 
-        // Пинг для Render.com
         setInterval(() => {
             if (process.env.RENDER_URL) {
-                axios.get(process.env.RENDER_URL).catch(() => {})
+                axios.get(process.env.RENDER_URL).catch(() => {});
             }
-        }, 300000)
-    })
-})()
+        }, 300000); // Пинг каждые 5 минут
+    });
+})();
