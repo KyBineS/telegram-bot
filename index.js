@@ -50,29 +50,45 @@ async function initDB() {
 // Сцена рассылки
 const broadcastScene = new WizardScene(
     'broadcast',
-    // 🟢 Всё выше этого блока остаётся без изменений!
+    // Шаг 1: Запрос времени
     async (ctx) => {
-
-        await ctx.reply('Введите время мероприятия (например: 15:00 25.12.2024):');
-        ctx.wizard.state.time = ctx.message.text;
+        // Для callback_query используем editMessageText
+        if (ctx.updateType === 'callback_query') {
+            await ctx.editMessageText('Введите время мероприятия (например: 15:00 25.12.2024):');
+        } else {
+            await ctx.reply('Введите время мероприятия (например: 15:00 25.12.2024):');
+        }
         return ctx.wizard.next();
-
     },
+
+    // Шаг 2: Обработка времени
     async (ctx) => {
-        ctx.wizard.state.time = ctx.message.text;
+        // Получаем текст из сообщения ИЛИ из callback
+        const text = ctx.message?.text || ctx.callbackQuery?.data;
+
+        // Проверка формата времени
+        const timeRegex = /^\d{2}:\d{2} \d{2}\.\d{2}\.\d{4}$/;
+        if (!timeRegex.test(text)) {
+            await ctx.reply('❌ Неверный формат! Пример: 15:00 25.12.2024');
+            return ctx.wizard.back();
+        }
+
+        ctx.wizard.state.time = text;
         await ctx.reply('Введите текст сообщения:');
         return ctx.wizard.next();
     },
+
+    // Шаг 3: Обработка текста
     async (ctx) => {
         ctx.wizard.state.message = ctx.message.text;
         await ctx.reply('Введите ссылку на Google Meet:');
         return ctx.wizard.next();
     },
-    // 🟢 Добавляем новый блок с подтверждением:
+
+    // Шаг 4: Обработка ссылки и подтверждение
     async (ctx) => {
         ctx.wizard.state.link = ctx.message.text;
 
-        // Отправляем сообщение с подтверждением
         await ctx.replyWithHTML(`
       <b>Подтвердите рассылку:</b>\n
       🕒 Время: <code>${ctx.wizard.state.time}</code>\n
@@ -88,22 +104,19 @@ const broadcastScene = new WizardScene(
                 ]
             }
         });
-
-        return ctx.wizard.next();  // Переходим к последнему шагу
+        return ctx.wizard.next();
     },
 
-    // 🟢 Добавляем обработчик колбэков
+    // Шаг 5: Обработка подтверждения
     async (ctx) => {
-        if (ctx.updateType === 'callback_query') {
-            if (ctx.callbackQuery.data === 'confirm_send') {
-                await pool.query(
-                    'INSERT INTO scheduled_messages (message_text, link, event_time) VALUES ($1, $2, $3)',
-                    [ctx.wizard.state.message, ctx.wizard.state.link, ctx.wizard.state.time]
-                );
-                await ctx.editMessageText('✅ Рассылка запланирована!');
-            } else {
-                await ctx.editMessageText('❌ Рассылка отменена');
-            }
+        if (ctx.callbackQuery?.data === 'confirm_send') {
+            await pool.query(
+                'INSERT INTO scheduled_messages (message_text, link, event_time) VALUES ($1, $2, $3)',
+                [ctx.wizard.state.message, ctx.wizard.state.link, ctx.wizard.state.time]
+            );
+            await ctx.editMessageText('✅ Рассылка запланирована!');
+        } else {
+            await ctx.editMessageText('❌ Рассылка отменена');
         }
         return ctx.scene.leave();
     }
@@ -182,8 +195,9 @@ bot.action('remove_user', async (ctx) => {
 
 // Обработчик кнопки "Создать рассылку"
 bot.action('start_broadcast', async (ctx) => {
-    await ctx.scene.enter('broadcast'); // Запускаем сцену рассылки
-    await ctx.deleteMessage(); // Удаляем меню
+    // Удаляем меню перед началом сцены
+    await ctx.deleteMessage();
+    await ctx.scene.enter('broadcast');
 });
 bot.command('unsubscribe', async (ctx) => {
     try {
