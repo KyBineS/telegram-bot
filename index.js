@@ -1,4 +1,4 @@
-const { Telegraf, Scenes, session } = require('telegraf')
+const { Telegraf, Scenes, session, Markup } = require('telegraf')
 const {Stage, WizardScene } = Scenes
 const express = require('express')
 const { Pool } = require('pg')
@@ -6,7 +6,6 @@ const axios = require('axios')
 require('dotenv').config()
 const fs = require('fs');
 const path = require('path');
-const { Markup } = Telegraf;
 function logAction(action, userId, details = '') {
     const logMessage = `[${new Date().toISOString()}] ${action} | User: ${userId} | ${details}\n`;
     fs.appendFile(path.join(__dirname, 'actions.log'), logMessage, (err) => {
@@ -155,16 +154,19 @@ bot.action('unsubscribe_btn', async (ctx) => {
 bot.command('admin', async (ctx) => {
     if (ctx.from.id.toString() !== process.env.ADMIN_ID) return;
 
-    await ctx.reply('Панель управления:', Markup.inlineKeyboard([
-        [
-            Markup.button.callback('📤 Создать рассылку', 'start_broadcast'),
-            Markup.button.callback('👥 Список пользователей', 'list_users')
-        ],
-        [
-            Markup.button.callback('🗑 Удалить пользователя', 'remove_user'),
-            Markup.button.callback('📊 Статистика', 'stats_btn')
-        ]
-    ]));
+    await ctx.reply(
+        'Панель управления:',
+        Markup.inlineKeyboard([
+            [
+                Markup.button.callback('📤 Создать рассылку', 'start_broadcast'),
+                Markup.button.callback('👥 Список пользователей', 'list_users')
+            ],
+            [
+                Markup.button.callback('🗑 Удалить пользователя', 'remove_user'),
+                Markup.button.callback('📊 Статистика', 'stats_btn')
+            ]
+        ])
+    );
 });
 // Обработчики админских кнопок
 bot.action('list_users', async (ctx) => {
