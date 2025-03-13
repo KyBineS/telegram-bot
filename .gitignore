@@ -2,4 +2,3 @@ node_modules/
 .env
 .DS_Store
 actions.log
-dump-bot_db_xnbf-202503130319.sql

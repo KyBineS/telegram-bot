@@ -33,28 +33,31 @@ const pool = new Pool({
 // Инициализация базы данных
 async function initDB() {
     try {
+        // Устанавливаем схему по умолчанию
+        await pool.query('SET search_path TO public;');
+
+        // Создаем таблицы с явным указанием схемы
         await pool.query(`
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT UNIQUE,
-                created_at TIMESTAMP DEFAULT NOW()
-            );
-            
-            CREATE TABLE IF NOT EXISTS scheduled_messages (
-                id SERIAL PRIMARY KEY,
-                message_text TEXT,
-                link TEXT,
-                event_time TEXT,
-                notification_time TIMESTAMP WITH TIME ZONE,
-                created_at TIMESTAMP DEFAULT NOW()
-            );
-        `);
+      CREATE TABLE IF NOT EXISTS public.users (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT UNIQUE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      
+      CREATE TABLE IF NOT EXISTS public.scheduled_messages (
+        id SERIAL PRIMARY KEY,
+        message_text TEXT,
+        link TEXT,
+        event_time TEXT,
+        notification_time TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
         console.log('✅ База данных готова');
     } catch (err) {
         console.error('❌ Ошибка базы данных:', err);
     }
 }
-
 // Сцена создания рассылки
 const broadcastScene = new WizardScene(
     'broadcast',
