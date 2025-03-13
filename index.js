@@ -8,51 +8,47 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 
-moment.tz.setDefault('Europe/Moscow'); // Устанавливаем московское время
+moment.tz.setDefault('Europe/Moscow');
 
-// Функция логирования действий
+// Логирование
 function logAction(action, userId, details = '') {
     const logMessage = `[${new Date().toISOString()}] ${action} | User: ${userId} | ${details}\n`;
     fs.appendFileSync(path.join(__dirname, 'actions.log'), logMessage);
     console.log(logMessage);
 }
 
-// Инициализация приложения
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Подключение к PostgreSQL
+// Подключение к Neon.tech
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
-        require: true, // Добавьте это
+        require: true,
         rejectUnauthorized: false
     }
 });
 
-// Инициализация базы данных
+// Инициализация БД
 async function initDB() {
     try {
-        // Устанавливаем схему по умолчанию
         await pool.query('SET search_path TO public;');
-
-        // Создаем таблицы с явным указанием схемы
         await pool.query(`
-      CREATE TABLE IF NOT EXISTS public.users (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT UNIQUE,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-      
-      CREATE TABLE IF NOT EXISTS public.scheduled_messages (
-        id SERIAL PRIMARY KEY,
-        message_text TEXT,
-        link TEXT,
-        event_time TEXT,
-        notification_time TIMESTAMP WITH TIME ZONE,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
+            CREATE TABLE IF NOT EXISTS public.users (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            
+            CREATE TABLE IF NOT EXISTS public.scheduled_messages (
+                id SERIAL PRIMARY KEY,
+                message_text TEXT,
+                link TEXT,
+                event_time TEXT,
+                notification_time TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        `);
         console.log('✅ База данных готова');
     } catch (err) {
         console.error('❌ Ошибка базы данных:', err);
@@ -279,22 +275,31 @@ async function sendMessages() {
     }
 }
 
-// Запуск приложения
+// Запуск приложения с оптимизациями
 (async () => {
     await initDB();
 
+    // Вебхук для Telegram
     app.use(bot.webhookCallback('/'));
     bot.telegram.setWebhook(`${process.env.RENDER_URL}/`);
+
+    // Новый эндпоинт для Cron
+    app.get('/cron', async (req, res) => {
+        try {
+            await sendMessages();
+            res.status(200).send('OK');
+            console.log('✅ Проверка рассылок выполнена');
+        } catch (err) {
+            console.error('❌ Ошибка Cron:', err);
+            res.status(500).send('ERROR');
+        }
+    });
 
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
         console.log(`🚀 Бот запущен на порту ${PORT}`);
-        setInterval(sendMessages, 60000); // Проверка каждую минуту
 
-        setInterval(() => {
-            if (process.env.RENDER_URL) {
-                axios.get(process.env.RENDER_URL).catch(() => {});
-            }
-        }, 300000); // Пинг каждые 5 минут
+        // Убрано: setInterval(sendMessages, 60000);
+        // Убрано: пинги Render
     });
 })();
