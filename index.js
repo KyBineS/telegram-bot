@@ -24,7 +24,10 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 // Подключение к PostgreSQL
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    ssl: {
+        require: true, // Добавьте это
+        rejectUnauthorized: false
+    }
 });
 
 // Инициализация базы данных
