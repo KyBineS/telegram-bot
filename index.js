@@ -243,7 +243,7 @@ bot.on('text', async (ctx) => {
     }
 });
 
-// Автоматическая рассылка
+// Автоматическая рассылка (ИЗМЕНЕНО)
 async function sendMessages() {
     try {
         const now = moment().tz('Europe/Moscow');
@@ -254,12 +254,17 @@ async function sendMessages() {
 
         for (const msg of messages.rows) {
             const users = await pool.query('SELECT user_id FROM users');
+            // Форматируем время события (НОВОЕ)
+            const eventTime = moment(msg.event_time)
+                .tz('Europe/Moscow')
+                .format('HH:mm DD.MM.YYYY');
 
             for (const user of users.rows) {
                 try {
                     await bot.telegram.sendMessage(
                         user.user_id,
-                        `⏰ Напоминание! Через 30 минут:\n${msg.message_text}\n🔗 ${msg.link}`
+                        // Новый формат сообщения (ИЗМЕНЕНО)
+                        `⏰ Напоминание! Мероприятие начнётся ${eventTime}:\n${msg.message_text}\n🔗 ${msg.link}`
                     );
                 } catch (err) {
                     if (err.code === 403) {
@@ -275,22 +280,27 @@ async function sendMessages() {
     }
 }
 
-// Запуск приложения с оптимизациями
+// Запуск приложения (ДОБАВЛЕН wakeup)
 (async () => {
     await initDB();
 
-    // Вебхук для Telegram
     app.use(bot.webhookCallback('/'));
     bot.telegram.setWebhook(`${process.env.RENDER_URL}/`);
 
-    // Новый эндпоинт для Cron
+    // Эндпоинт для пробуждения (НОВОЕ)
+    app.get('/wakeup', (req, res) => {
+        res.send('✅ Сервер активен');
+        console.log('🔄 Сервер пробужден через /wakeup');
+    });
+
+    // Эндпоинт для крон-заданий (ИЗМЕНЕНО)
     app.get('/cron', async (req, res) => {
         try {
+            console.log('⏰ Запуск проверки рассылок...');
             await sendMessages();
             res.status(200).send('OK');
-            console.log('✅ Проверка рассылок выполнена');
         } catch (err) {
-            console.error('❌ Ошибка Cron:', err);
+            console.error('❌ Ошибка:', err);
             res.status(500).send('ERROR');
         }
     });
@@ -298,8 +308,5 @@ async function sendMessages() {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
         console.log(`🚀 Бот запущен на порту ${PORT}`);
-
-        // Убрано: setInterval(sendMessages, 60000);
-        // Убрано: пинги Render
     });
 })();
