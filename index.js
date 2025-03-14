@@ -110,7 +110,7 @@ const broadcastScene = new WizardScene(
                     return ctx.scene.leave();
                 }
 
-                // Вычисляем время уведомления (за 30 минут)
+                // Вычисляем время уведомления (за 45 минут)
                 const notificationTime = eventTime.clone().subtract(30, 'minutes');
 
                 // Сохраняем в базу данных
@@ -264,7 +264,7 @@ async function sendMessages() {
                     await bot.telegram.sendMessage(
                         user.user_id,
                         // Новый формат сообщения (ИЗМЕНЕНО)
-                        `⏰ Напоминание! Мероприятие начнётся ${eventTime}:\n${msg.message_text}\n🔗 ${msg.link}`
+                        `Привет 🤍:\n${msg.message_text}\n🔗 ${msg.link}`
                     );
                 } catch (err) {
                     if (err.code === 403) {
