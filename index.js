@@ -264,7 +264,7 @@ async function sendMessages() {
                     await bot.telegram.sendMessage(
                         user.user_id,
                         // Новый формат сообщения (ИЗМЕНЕНО)
-                        `Привет 🤍:\n${msg.message_text}\n🔗 ${msg.link}`
+                        `Привет 🤍\n${msg.message_text}\n🔗 ${msg.link}`
                     );
                 } catch (err) {
                     if (err.code === 403) {
